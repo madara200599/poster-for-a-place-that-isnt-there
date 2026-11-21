@@ -27,17 +27,24 @@ def fill_circle(cx, cy, rad, col):
 
 def lerp(a,b,t): return int(a+(b-a)*t)
 
-# --- SKY gradient: deep indigo -> teal -> warm orange near horizon ---
+# --- SKY gradient: richer multi-stop bands, deep indigo -> violet -> teal -> amber -> warm orange ---
+import math
+SKY_STOPS=[(0.0,(10,16,62)),(0.18,(28,32,96)),(0.34,(58,64,132)),(0.48,(32,110,140)),(0.62,(86,168,158)),(0.78,(238,150,80)),(0.90,(255,178,92)),(1.0,(255,200,110))]
+def sky_color(t):
+    for i in range(len(SKY_STOPS)-1):
+        t0,c0=SKY_STOPS[i]; t1,c1=SKY_STOPS[i+1]
+        if t0<=t<=t1:
+            tt=(t-t0)/max(1e-9,(t1-t0))
+            # gentle banding / dithering to enrich gradient
+            return (lerp(c0[0],c1[0],tt), lerp(c0[1],c1[1],tt), lerp(c0[2],c1[2],tt))
+    return SKY_STOPS[-1][1]
 for y in range(H):
     if y < 650:
         t = y/650
-        # stops: 0: (18,32,84) 0.45:(32,110,140) 0.75:(238,150,80) 1:(255,190,95)
-        if t < 0.45:
-            tt=t/0.45; col=(lerp(18,32,tt), lerp(32,110,tt), lerp(84,140,tt))
-        elif t < 0.75:
-            tt=(t-0.45)/0.30; col=(lerp(32,238,tt), lerp(110,150,tt), lerp(140,80,tt))
-        else:
-            tt=(t-0.75)/0.25; col=(lerp(238,255,tt), lerp(150,190,tt), lerp(80,95,tt))
+        col=sky_color(t)
+        # subtle horizontal band glow
+        band=int(6*math.sin(y*0.045))
+        col=(max(0,min(255,col[0]+band)), max(0,min(255,col[1]+band//2)), max(0,min(255,col[2]+band)))
     else:
         t=(y-650)/350
         col=(lerp(20,8,t), lerp(95,38,t), lerp(110,62,t))
@@ -45,17 +52,51 @@ for y in range(H):
     i=y*W*3
     buf[i:i+len(row)]=row
 
-# stars in upper sky
-import math
+# stars in upper sky — denser deterministic field, fading toward horizon
 stars=[(60,60),(140,120),(680,80),(720,180),(90,220),(620,140),(200,70),(540,60),(760,300),(40,340)]
-for (sx,sy) in stars:
-    fill_rect(sx,sy,sx+4,sy+4,(255,255,230))
-    fill_rect(sx-2,sy+1,sx+6,sy+3,(255,255,230))
+# deterministic pseudo-random extra stars (LCG, no imports needed)
+_seed=1234567
+def _rand():
+    global _seed
+    _seed=(_seed*1103515245+12345)&0x7fffffff
+    return _seed
+for _ in range(140):
+    sx=_rand()%780+10; sy=_rand()%380+18
+    stars.append((sx,sy))
+for idx,(sx,sy) in enumerate(stars):
+    fade=max(0.25, 1.0 - sy/420.0)  # dimmer lower down
+    bright=int(150+105*fade) if idx%3 else 255
+    col_star=(bright,bright,max(180,int(bright*0.92)))
+    sz=2 if idx%4 else 4
+    if sy<420:
+        fill_rect(sx,sy,sx+sz,sy+sz,col_star)
+        if idx%5==0:
+            fill_rect(sx-2,sy+1,sx+sz+2,sy+2,col_star)
 
 # sun / glowing moon-sun
 fill_circle(400,420,118,(255,214,110))
 fill_circle(400,420,96,(255,236,160))
 # sun reflection glow band on sea handled later
+
+# --- soft clouds for depth (layered translucent-look ellipses, drawn as overlapping circles) ---
+def cloud(cx, cy, scale, col):
+    for (dx, dy, r) in [(-38,-2,22),(0,-10,30),(38,-2,24),( -14,6,20),(18,6,22)]:
+        fill_circle(cx+int(dx*scale), cy+int(dy*scale), max(4,int(r*scale)), col)
+cloud(150,250,1.0,(214,196,205))
+cloud(155,252,0.85,(232,214,214))
+cloud(650,290,1.15,(206,188,200))
+cloud(655,292,0.9,(228,208,210))
+cloud(560,150,0.7,(198,182,198))
+cloud(90,390,0.65,(226,200,196))
+
+# --- small bird silhouettes (simple chevron wings) for depth ---
+def bird(bx, by, s, col=(22,26,48)):
+    for k in range(s):
+        set_px(bx-s*2+k, by-k, *col); set_px(bx-s*2+k+1, by-k, *col)
+        set_px(bx+k, by-k, *col); set_px(bx+k+1, by-k, *col)
+    fill_rect(bx-1,by-s,by and bx+2 or bx+2,by-s+2,col) if False else fill_rect(bx-1,by-s+1,bx+2,by-s+3,col)
+for (bx,by,bs) in [(250,180,7),(285,165,5),(520,200,6),(555,185,4),(180,300,5),(610,340,6),(470,140,4)]:
+    bird(bx,by,bs)
 
 # distant mountains (purple)
 def mountain(base_y, peaks, col):
